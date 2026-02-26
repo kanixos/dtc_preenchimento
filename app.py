@@ -77,8 +77,7 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
     for tabela in doc.tables:
         for linha in tabela.rows:
             for celula in linha.cells:
-                # CORREÇÃO: Lê parágrafo por parágrafo dentro da célula 
-                # para não destruir as linhas de assinatura e formatações originais
+                # Lê parágrafo por parágrafo dentro da célula para não destruir formatações originais
                 for p in celula.paragraphs:
                     for chave, valor in dados_pessoais.items():
                         if chave in p.text:
@@ -279,12 +278,20 @@ st.title("📄 Preenchedor Automático DTC")
 st.write("Interface otimizada. O sistema desenhará magicamente as tabelas exatas do padrão INSS com fontes e cores corretas.")
 
 # --- 1. Dados Pessoais ---
-st.subheader("1. Dados Pessoais")
+st.subheader("1. Identificação do Documento e Servidor")
+
+col_dtc1, col_dtc2 = st.columns([1, 3])
+with col_dtc1:
+    numero_dtc = st.text_input("Número do DTC", placeholder="Ex: 199/2025")
+
+st.markdown("---")
+
 col1, col2, col3 = st.columns(3)
 with col1:
     nome = st.text_input("Nome do Servidor")
     rg = st.text_input("RG / Órgão Emissor")
     mae = st.text_input("Nome da Mãe")
+    pai = st.text_input("Nome do Pai")
 with col2:
     cpf = st.text_input("CPF")
     pis = st.text_input("PIS/PASEP")
@@ -293,8 +300,10 @@ with col3:
     data_nasc = st.text_input("Data de Nascimento")
 
 dados_pessoais = {
+    "{{NUM_DTC}}": numero_dtc,
     "{{NOME}}": nome, "{{CPF}}": cpf, "{{MATRICULA}}": matricula,
-    "{{RG}}": rg, "{{PIS}}": pis, "{{MAE}}": mae, "{{DATA_NASC}}": data_nasc,
+    "{{RG}}": rg, "{{PIS}}": pis, "{{MAE}}": mae, "{{PAI}}": pai,
+    "{{DATA_NASC}}": data_nasc,
     "{{DATA}}": datetime.today().strftime('%d/%m/%Y')
 }
 
