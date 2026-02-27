@@ -8,6 +8,8 @@ from docx.enum.table import WD_ALIGN_VERTICAL
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Pt, Cm
+import tempfile
+import os
 
 # ==========================================
 # FUNÇÕES AUXILIARES DE FORMATAÇÃO
@@ -23,17 +25,13 @@ def encontrar_paragrafo(doc, texto_tag):
     return None
 
 def preencher_celula(celula, texto, fundo_cinza=False, negrito=False, alinhar_centro=True):
-    """
-    Injeta o texto com 3 espaços (1 linha acima e 1 abaixo),
-    aplica alinhamento e fonte Calibri 12 (com opção de negrito).
-    """
     # Adiciona os espaços em branco (linhas) antes e depois
     celula.text = f"\n{texto}\n"
     
     # Centralização Vertical
     celula.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
     
-    # Formatação do Parágrafo e Fonte (Calibri 12, Negrito e Alinhamento)
+    # Formatação do Parágrafo e Fonte
     for p in celula.paragraphs:
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER if alinhar_centro else WD_ALIGN_PARAGRAPH.LEFT
         for run in p.runs:
@@ -41,19 +39,27 @@ def preencher_celula(celula, texto, fundo_cinza=False, negrito=False, alinhar_ce
             run.font.size = Pt(12)
             run.font.bold = negrito
             
-    # Aplica o fundo cinza se solicitado
     if fundo_cinza:
         tcPr = celula._tc.get_or_add_tcPr()
         shd = OxmlElement('w:shd')
         shd.set(qn('w:val'), 'clear')
         shd.set(qn('w:color'), 'auto')
-        shd.set(qn('w:fill'), 'D9D9D9') # Código Hex para Cinza-Claro
+        shd.set(qn('w:fill'), 'D9D9D9')
         tcPr.append(shd)
 
+def forcar_largura_100(tabela):
+    """Força a tabela a ocupar 100% da margem do documento."""
+    tblPr = tabela._tbl.tblPr
+    tblW = tblPr.xpath('w:tblW')
+    if not tblW:
+        tblW = OxmlElement('w:tblW')
+        tblPr.append(tblW)
+    else:
+        tblW = tblW[0]
+    tblW.set(qn('w:w'), '5000') # 5000 em pct = 100%
+    tblW.set(qn('w:type'), 'pct')
+
 def definir_larguras(tabela, larguras):
-    """
-    Ajusta a largura de cada coluna para economizar espaço nos números.
-    """
     for row in tabela.rows:
         for idx, celula in enumerate(row.cells):
             if idx < len(larguras):
@@ -65,26 +71,43 @@ def definir_larguras(tabela, larguras):
 def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
     doc = Document("template.docx")
     
-    # 1. Substituições de Texto Simples (Garante Calibri 12 nas tags)
+    # 1. Substituições de Texto Simples e Controle do Número DTC
+    dtc_count = 0
     for paragrafo in doc.paragraphs:
+        teve_alteracao = False
+        tem_dtc = False
+        
         for chave, valor in dados_pessoais.items():
             if chave in paragrafo.text:
                 paragrafo.text = paragrafo.text.replace(chave, str(valor))
-                for run in paragrafo.runs:
-                    run.font.name = 'Calibri'
+                teve_alteracao = True
+                if chave == "{{NUM_DTC}}":
+                    tem_dtc = True
+                    dtc_count += 1
+                    
+        if teve_alteracao:
+            for run in paragrafo.runs:
+                run.font.name = 'Calibri'
+                # Aplica Tamanho 14 e Negrito APENAS na primeira vez que achar o DTC (Página 1)
+                if tem_dtc and dtc_count == 1:
+                    run.font.size = Pt(14)
+                    run.font.bold = True
+                else:
                     run.font.size = Pt(12)
                 
     for tabela in doc.tables:
         for linha in tabela.rows:
             for celula in linha.cells:
-                # Lê parágrafo por parágrafo dentro da célula para não destruir formatações originais
                 for p in celula.paragraphs:
+                    teve_alteracao = False
                     for chave, valor in dados_pessoais.items():
                         if chave in p.text:
                             p.text = p.text.replace(chave, str(valor))
-                            for run in p.runs:
-                                run.font.name = 'Calibri'
-                                run.font.size = Pt(12)
+                            teve_alteracao = True
+                    if teve_alteracao:
+                        for run in p.runs:
+                            run.font.name = 'Calibri'
+                            run.font.size = Pt(12)
 
     # =========================================================
     # TABELA 1: DADOS FUNCIONAIS (1ª Página)
@@ -93,6 +116,7 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
     if p_func1 is not None:
         tbl1 = doc.add_table(rows=0, cols=3)
         tbl1.style = 'Table Grid'
+        forcar_largura_100(tbl1) # Garante margens alinhadas
         
         for idx, row in df_vinculos.iterrows():
             if pd.isna(row.iloc[0]) or str(row.iloc[0]).strip() == "": continue
@@ -108,8 +132,7 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
             preencher_celula(r_des[1], f"Nº DE PORTARIA DE EXONERAÇÃO/ DEMISSÃO:\n{row.get('Port. Exoneração', 'NA')}", alinhar_centro=False)
             preencher_celula(r_des[2], f"DATA DA PUBLICAÇÃO:\n{row.get('Pub. Exoneração', 'NA')}", alinhar_centro=False)
         
-        # Ajusta larguras igualmente
-        definir_larguras(tbl1, [Cm(5.3), Cm(5.3), Cm(5.3)])
+        definir_larguras(tbl1, [Cm(6.0), Cm(6.0), Cm(6.0)])
         
         p_func1._p.addnext(tbl1._tbl)
         p_func1.text = p_func1.text.replace('{{TAB_FUNC_1}}', '')
@@ -121,6 +144,8 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
     if p_per is not None:
         tbl2 = doc.add_table(rows=1, cols=5)
         tbl2.style = 'Table Grid'
+        forcar_largura_100(tbl2) # Garante margens alinhadas
+        
         headers = ["SEQ.:", "DATA INÍCIO:", "DATA FIM:", "CARGO/FUNÇÃO:", "CATEGORIA FUNCIONAL:"]
         for i, h in enumerate(headers):
             preencher_celula(tbl2.cell(0, i), h, negrito=True)
@@ -140,9 +165,8 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
             preencher_celula(r[1], str(row.get('Dt. Admissão', '-')))
             preencher_celula(r[2], str(row.get('Dt. Desligamento', '-')))
             preencher_celula(r[3], str(row.get('Cargo / Função', '-')).upper())
-            preencher_celula(r[4], cat_texto)
+            preencher_celula(r[4], cat_texto, alinhar_centro=False)
 
-        # Mesclagem Vertical Inteligente
         if len(tbl2.rows) > 1:
             for col_idx in [3, 4]:
                 start_row = 1
@@ -152,14 +176,14 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
                         end_row += 1
                     if end_row > start_row:
                         start_cell = tbl2.cell(start_row, col_idx)
-                        raw_text = start_cell.text.strip() # Salva o texto sem as quebras de linha
+                        raw_text = start_cell.text.strip()
                         for r_idx in range(start_row + 1, end_row + 1):
                             start_cell.merge(tbl2.cell(r_idx, col_idx))
-                        preencher_celula(start_cell, raw_text) # Refaz a formatação na célula grande
+                        # Mantém a categoria alinhada à esquerda
+                        preencher_celula(start_cell, raw_text, alinhar_centro=(col_idx==3)) 
                     start_row = end_row + 1
 
-        # Deixa o SEQ. bem menor (1.5cm) e datas ajustadas
-        definir_larguras(tbl2, [Cm(1.5), Cm(3.0), Cm(3.0), Cm(4.5), Cm(4.0)])
+        definir_larguras(tbl2, [Cm(1.5), Cm(3.2), Cm(3.2), Cm(5.0), Cm(5.1)])
         
         p_per._p.addnext(tbl2._tbl)
         p_per.text = p_per.text.replace('{{TAB_PER}}', '')
@@ -171,6 +195,7 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
     if p_func2 is not None:
         tbl3 = doc.add_table(rows=0, cols=4)
         tbl3.style = 'Table Grid'
+        forcar_largura_100(tbl3)
         
         for idx, row in df_vinculos.iterrows():
             if pd.isna(row.iloc[0]) or str(row.iloc[0]).strip() == "": continue
@@ -195,7 +220,7 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
                     start_cell.merge(tbl3.cell(r_idx, col_idx))
                 preencher_celula(start_cell, raw_text, alinhar_centro=False)
 
-        definir_larguras(tbl3, [Cm(4), Cm(4), Cm(4), Cm(4)])
+        definir_larguras(tbl3, [Cm(4.5), Cm(4.5), Cm(4.5), Cm(4.5)])
 
         p_func2._p.addnext(tbl3._tbl)
         p_func2.text = p_func2.text.replace('{{TAB_FUNC_2}}', '')
@@ -227,13 +252,12 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
         for bloco in blocos_de_anos:
             tbl = doc.add_table(rows=14, cols=len(bloco)+1)
             tbl.style = 'Table Grid'
+            forcar_largura_100(tbl)
             
-            # Cabeçalho: Mês (Mesclado) com Fundo Cinza
             c_mes0 = tbl.cell(0, 0)
             c_mes0.merge(tbl.cell(1, 0))
             preencher_celula(c_mes0, "Mês", fundo_cinza=True, negrito=True)
             
-            # Cabeçalho: Anos e "Valor($)" com Fundo Cinza
             for col_idx, ano in enumerate(bloco):
                 c_ano = tbl.cell(0, col_idx+1)
                 preencher_celula(c_ano, f"Ano: {ano}", fundo_cinza=True, negrito=True)
@@ -241,7 +265,6 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
                 c_val = tbl.cell(1, col_idx+1)
                 preencher_celula(c_val, "Valor($)", fundo_cinza=True, negrito=True)
                 
-            # Preenchendo os meses e valores
             for mes_idx, mes_nome in enumerate(meses_nomes):
                 c_m = tbl.cell(mes_idx+2, 0)
                 preencher_celula(c_m, mes_nome)
@@ -251,8 +274,7 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
                     c_v = tbl.cell(mes_idx+2, col_idx+1)
                     preencher_celula(c_v, val)
                     
-            # Ajusta larguras: Mês ganha mais espaço (3.5cm), Valores ficam menores (2.5cm)
-            larguras_t4 = [Cm(3.5)] + [Cm(2.5)] * len(bloco)
+            larguras_t4 = [Cm(3.5)] + [Cm(2.8)] * len(bloco)
             definir_larguras(tbl, larguras_t4)
             
             elemento_anterior.addnext(tbl._tbl)
@@ -358,19 +380,63 @@ df_remuneracoes = st.data_editor(st.session_state.df_remun_base, num_rows="dynam
 
 # --- Botão de Geração Final ---
 st.markdown("---")
+
+gerar_pdf = st.checkbox("Gerar também em formato PDF (Requer execução local no Windows com MS Word instalado)")
+
 if st.button("🚀 GERAR DOCUMENTO PADRÃO INSS", type="primary", use_container_width=True):
     if nome and cpf:
         with st.spinner('A desenhar as tabelas exatas do INSS com fontes e cores...'):
             try:
                 arquivo_docx = preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes)
                 st.balloons()
-                st.download_button(
-                    label="📥 BAIXAR DTC (WORD)",
-                    data=arquivo_docx,
-                    file_name=f"DTC_{nome.replace(' ', '_')}.docx",
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    use_container_width=True
-                )
+                
+                col_down1, col_down2 = st.columns(2)
+                
+                with col_down1:
+                    st.download_button(
+                        label="📥 BAIXAR DTC (WORD)",
+                        data=arquivo_docx,
+                        file_name=f"DTC_{nome.replace(' ', '_')}.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        use_container_width=True
+                    )
+                
+                if gerar_pdf:
+                    with col_down2:
+                        try:
+                            from docx2pdf import convert
+                            
+                            with st.spinner("Convertendo para PDF (isso pode levar alguns segundos)..."):
+                                with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp_docx:
+                                    tmp_docx.write(arquivo_docx.getvalue())
+                                    tmp_docx_path = tmp_docx.name
+                                    
+                                tmp_pdf_path = tmp_docx_path.replace(".docx", ".pdf")
+                                
+                                convert(tmp_docx_path, tmp_pdf_path)
+                                
+                                with open(tmp_pdf_path, "rb") as f:
+                                    pdf_bytes = f.read()
+                                    
+                                st.download_button(
+                                    label="📥 BAIXAR DTC (PDF)",
+                                    data=pdf_bytes,
+                                    file_name=f"DTC_{nome.replace(' ', '_')}.pdf",
+                                    mime="application/pdf",
+                                    use_container_width=True
+                                )
+                                
+                                try:
+                                    os.remove(tmp_docx_path)
+                                    os.remove(tmp_pdf_path)
+                                except:
+                                    pass
+                                    
+                        except ImportError:
+                            st.error("⚠️ Biblioteca 'docx2pdf' ausente. Abra o terminal e digite: pip install docx2pdf")
+                        except Exception as e:
+                            st.warning("⚠️ O sistema de PDF não funcionou na nuvem. Baixe o Word e vá em 'Salvar como PDF' no seu computador.")
+                            
             except Exception as e:
                 st.error(f"Erro ao processar as matrizes. Detalhe técnico: {e}")
     else:
