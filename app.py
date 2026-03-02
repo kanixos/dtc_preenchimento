@@ -60,6 +60,13 @@ def definir_larguras(tabela, larguras):
 
 def substituir_tags_preservando_formatacao(doc, dados_pessoais):
     """Substitui as tags de forma segura mantendo negritos e tamanhos específicos."""
+    
+    # LÓGICA CORRIGIDA: Força a quebra de página de forma independente.
+    # Garante que a quebra ocorra mesmo que a linha não tenha nenhuma tag a ser substituída.
+    for p in doc.paragraphs:
+        if "RELAÇÃO DAS REMUNERAÇÕES" in p.text.upper():
+            p.paragraph_format.page_break_before = True
+
     dtc_count = 0
     for p in doc.paragraphs:
         for chave, valor in dados_pessoais.items():
@@ -76,10 +83,6 @@ def substituir_tags_preservando_formatacao(doc, dados_pessoais):
                         else:
                             run.font.size = Pt(12) # Segunda página (Remunerações)
                 else:
-                    # IDENTIFICA O TÍTULO DAS REMUNERAÇÕES E FORÇA A QUEBRA DE PÁGINA
-                    if "RELAÇÃO DAS REMUNERAÇÕES" in p.text.upper():
-                        p.paragraph_format.page_break_before = True
-                        
                     p.text = p.text.replace(chave, str(valor))
                     # Fallback para outras tags soltas fora de tabelas
                     for run in p.runs:
