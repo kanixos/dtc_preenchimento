@@ -4,7 +4,7 @@ from docx import Document
 import io
 from datetime import datetime
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.table import WD_ALIGN_VERTICAL
+from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Pt, Cm
@@ -51,8 +51,9 @@ def preencher_celula(celula, texto, fundo_cinza=False, negrito=False, alinhar_ce
         tcPr.append(shd)
 
 def definir_larguras(tabela, larguras):
-    """Ajusta a largura rígida de cada coluna em Centímetros para garantir alinhamento perfeito."""
+    """Ajusta a largura rígida de cada coluna em Centímetros e GARANTE A CENTRALIZAÇÃO da tabela na página."""
     tabela.autofit = False
+    tabela.alignment = WD_TABLE_ALIGNMENT.CENTER # <--- COMANDO MÁGICO PARA CENTRALIZAR A TABELA
     for row in tabela.rows:
         for idx, cell in enumerate(row.cells):
             if idx < len(larguras):
@@ -130,7 +131,7 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
             preencher_celula(r_des[1], f"Nº DE PORTARIA DE EXONERAÇÃO/ DEMISSÃO:\n{row.get('Port. Exoneração', 'NA')}", alinhar_centro=False)
             preencher_celula(r_des[2], f"DATA DA PUBLICAÇÃO:\n{row.get('Pub. Exoneração', 'NA')}", alinhar_centro=False)
         
-        # Total Exato: 16.0 cm (Alinhado com as margens de 2.5cm)
+        # Total Exato: 16.0 cm + Centralização
         definir_larguras(tbl1, [Cm(5.33), Cm(5.33), Cm(5.34)])
         p_func1._p.addnext(tbl1._tbl)
         p_func1.text = p_func1.text.replace('{{TAB_FUNC_1}}', '')
@@ -179,7 +180,7 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
                         preencher_celula(start_cell, raw_text, alinhar_centro=(col_idx==3)) 
                     start_row = end_row + 1
 
-        # Total Exato: 16.0 cm
+        # Total Exato: 16.0 cm + Centralização
         definir_larguras(tbl2, [Cm(1.5), Cm(3.0), Cm(3.0), Cm(4.0), Cm(4.5)])
         p_per._p.addnext(tbl2._tbl)
         p_per.text = p_per.text.replace('{{TAB_PER}}', '')
@@ -215,7 +216,7 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
                     start_cell.merge(tbl3.cell(r_idx, col_idx))
                 preencher_celula(start_cell, raw_text, alinhar_centro=False)
 
-        # Total Exato: 16.0 cm
+        # Total Exato: 16.0 cm + Centralização
         definir_larguras(tbl3, [Cm(4.0), Cm(4.0), Cm(4.0), Cm(4.0)])
         p_func2._p.addnext(tbl3._tbl)
         p_func2.text = p_func2.text.replace('{{TAB_FUNC_2}}', '')
@@ -286,7 +287,7 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
                     c_v = tbl.cell(mes_idx+2, col_idx+1)
                     preencher_celula(c_v, val, espacamento=True)
             
-            # Total Exato: 16.0 cm (Mês=3.5cm, Cada Ano=2.5cm * 5)
+            # Total Exato: 16.0 cm (Mês=3.5cm, Cada Ano=2.5cm * 5) + Centralização
             larguras_t4 = [Cm(3.5), Cm(2.5), Cm(2.5), Cm(2.5), Cm(2.5), Cm(2.5)]
             definir_larguras(tbl, larguras_t4)
             
