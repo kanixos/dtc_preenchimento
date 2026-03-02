@@ -47,74 +47,36 @@ def preencher_celula(celula, texto, fundo_cinza=False, negrito=False, alinhar_ce
         shd.set(qn('w:fill'), 'D9D9D9')
         tcPr.append(shd)
 
-def forcar_largura_100(tabela):
-    """Força a tabela a ocupar 100% da margem do documento."""
-    tblPr = tabela._tbl.tblPr
-    tblW = tblPr.xpath('w:tblW')
-    if not tblW:
-        tblW = OxmlElement('w:tblW')
-        tblPr.append(tblW)
-    else:
-        tblW = tblW[0]
-    tblW.set(qn('w:w'), '5000') # 5000 em pct = 100%
-    tblW.set(qn('w:type'), 'pct')
-
-def definir_larguras_pct(tabela, percentuais):
-    """Ajusta a largura de cada coluna usando porcentagem proporcional."""
+def definir_larguras(tabela, larguras):
+    """Ajusta a largura rígida de cada coluna em Centímetros para garantir alinhamento perfeito."""
+    tabela.autofit = False
     for row in tabela.rows:
         for idx, cell in enumerate(row.cells):
-            if idx < len(percentuais):
-                tcPr = cell._tc.get_or_add_tcPr()
-                tcW = tcPr.xpath('w:tcW')
-                if tcW:
-                    tcW = tcW[0]
-                else:
-                    tcW = OxmlElement('w:tcW')
-                    tcPr.append(tcW)
-                tcW.set(qn('w:w'), str(int(percentuais[idx] * 50))) 
-                tcW.set(qn('w:type'), 'pct')
+            if idx < len(larguras):
+                cell.width = larguras[idx]
 
 def substituir_tags_preservando_formatacao(doc, dados_pessoais):
-    """Substitui as tags de forma segura sem quebrar o negrito dos títulos originais."""
+    """Substitui as tags de forma segura mantendo negritos e tamanhos específicos."""
+    dtc_count = 0
     for p in doc.paragraphs:
         for chave, valor in dados_pessoais.items():
             if chave in p.text:
                 if chave == "{{NUM_DTC}}":
-                    if "DECLARAÇÃO DE TEMPO" in p.text.upper():
-                        p.text = ""
-                        r1 = p.add_run("DECLARAÇÃO DE TEMPO DE CONTRIBUIÇÃO AO RGPS\n")
-                        r1.bold = True
-                        r1.font.size = Pt(14)
-                        r1.font.name = 'Calibri'
-                        r2 = p.add_run(f"DTC N°: {valor}")
-                        r2.bold = True
-                        r2.font.size = Pt(14)
-                        r2.font.name = 'Calibri'
-                        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                    elif "RELAÇÃO DAS REMUNERAÇÕES" in p.text.upper():
-                        p.text = ""
-                        r1 = p.add_run("RELAÇÃO DAS REMUNERAÇÕES QUE INCIDEM CONTRIBUIÇÕES PREVIDENCIÁRIAS\n")
-                        r1.bold = True
-                        r1.font.size = Pt(12)
-                        r1.font.name = 'Calibri'
-                        r2 = p.add_run(f"REFERENTE À DECLARAÇÃO DE TEMPO DE CONTRIBUIÇÃO AO RGPS – DTC Nº {valor}")
-                        r2.bold = False
-                        r2.font.size = Pt(12)
-                        r2.font.name = 'Calibri'
-                        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                    else:
-                        p.text = p.text.replace(chave, str(valor))
-                else:
-                    substituido = False
+                    dtc_count += 1
+                    p.text = p.text.replace(chave, str(valor))
+                    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
                     for run in p.runs:
-                        if chave in run.text:
-                            run.text = run.text.replace(chave, str(valor))
-                            run.font.name = 'Calibri'
-                            substituido = True
-                    if not substituido: 
-                        p.text = p.text.replace(chave, str(valor))
-                        for run in p.runs:
-                            run.font.name = 'Calibri'
+                        run.font.name = 'Calibri'
+                        run.font.bold = True
+                        if dtc_count == 1:
+                            run.font.size = Pt(14) # Primeira página
+                        else:
+                            run.font.size = Pt(12) # Segunda página (Remunerações)
+                else:
+                    p.text = p.text.replace(chave, str(valor))
+                    # Fallback para outras tags soltas fora de tabelas
+                    for run in p.runs:
+                        run.font.name = 'Calibri'
 
     # Substituição nas Tabelas (Dados Pessoais)
     for t in doc.tables:
@@ -123,6 +85,7 @@ def substituir_tags_preservando_formatacao(doc, dados_pessoais):
                 for p in c.paragraphs:
                     for chave, valor in dados_pessoais.items():
                         if chave in p.text:
+                            # Tenta substituir direto no run para preservar negrito das labels (ex: "NOME:")
                             substituido = False
                             for run in p.runs:
                                 if chave in run.text:
@@ -149,7 +112,6 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
     if p_func1 is not None:
         tbl1 = doc.add_table(rows=0, cols=3)
         tbl1.style = 'Table Grid'
-        forcar_largura_100(tbl1) 
         
         for idx, row in df_vinculos.iterrows():
             if pd.isna(row.iloc[0]) or str(row.iloc[0]).strip() == "": continue
@@ -165,7 +127,8 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
             preencher_celula(r_des[1], f"Nº DE PORTARIA DE EXONERAÇÃO/ DEMISSÃO:\n{row.get('Port. Exoneração', 'NA')}", alinhar_centro=False)
             preencher_celula(r_des[2], f"DATA DA PUBLICAÇÃO:\n{row.get('Pub. Exoneração', 'NA')}", alinhar_centro=False)
         
-        definir_larguras_pct(tbl1, [33, 33, 34])
+        # Total Exato: 16.0 cm
+        definir_larguras(tbl1, [Cm(5.3), Cm(5.3), Cm(5.4)])
         p_func1._p.addnext(tbl1._tbl)
         p_func1.text = p_func1.text.replace('{{TAB_FUNC_1}}', '')
 
@@ -176,7 +139,6 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
     if p_per is not None:
         tbl2 = doc.add_table(rows=1, cols=5)
         tbl2.style = 'Table Grid'
-        forcar_largura_100(tbl2)
         
         headers = ["SEQ.:", "DATA INÍCIO:", "DATA FIM:", "CARGO/FUNÇÃO:", "CATEGORIA FUNCIONAL:"]
         for i, h in enumerate(headers):
@@ -214,7 +176,8 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
                         preencher_celula(start_cell, raw_text, alinhar_centro=(col_idx==3)) 
                     start_row = end_row + 1
 
-        definir_larguras_pct(tbl2, [8, 17, 17, 28, 30])
+        # Total Exato: 16.0 cm
+        definir_larguras(tbl2, [Cm(1.5), Cm(3.0), Cm(3.0), Cm(4.0), Cm(4.5)])
         p_per._p.addnext(tbl2._tbl)
         p_per.text = p_per.text.replace('{{TAB_PER}}', '')
 
@@ -225,7 +188,6 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
     if p_func2 is not None:
         tbl3 = doc.add_table(rows=0, cols=4)
         tbl3.style = 'Table Grid'
-        forcar_largura_100(tbl3)
         
         for idx, row in df_vinculos.iterrows():
             if pd.isna(row.iloc[0]) or str(row.iloc[0]).strip() == "": continue
@@ -250,7 +212,8 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
                     start_cell.merge(tbl3.cell(r_idx, col_idx))
                 preencher_celula(start_cell, raw_text, alinhar_centro=False)
 
-        definir_larguras_pct(tbl3, [25, 25, 25, 25])
+        # Total Exato: 16.0 cm
+        definir_larguras(tbl3, [Cm(4.0), Cm(4.0), Cm(4.0), Cm(4.0)])
         p_func2._p.addnext(tbl3._tbl)
         p_func2.text = p_func2.text.replace('{{TAB_FUNC_2}}', '')
 
@@ -294,7 +257,6 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
         for bloco in blocos_de_anos:
             tbl = doc.add_table(rows=14, cols=len(bloco)+1)
             tbl.style = 'Table Grid'
-            forcar_largura_100(tbl)
             
             c_mes0 = tbl.cell(0, 0)
             c_mes0.merge(tbl.cell(1, 0))
@@ -309,16 +271,17 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
                 
             for mes_idx, mes_nome in enumerate(meses_nomes):
                 c_m = tbl.cell(mes_idx+2, 0)
-                preencher_celula(c_m, mes_nome)
+                # Aplicando NEGRITO aos Meses da Tabela!
+                preencher_celula(c_m, mes_nome, negrito=True)
                 
                 for col_idx, ano in enumerate(bloco):
                     val = dados_matriz.get((mes_idx+1, ano), "-")
                     c_v = tbl.cell(mes_idx+2, col_idx+1)
                     preencher_celula(c_v, val)
             
-            pct_por_ano = 85 / len(bloco)
-            larguras_t4 = [15] + [pct_por_ano] * len(bloco)
-            definir_larguras_pct(tbl, larguras_t4)
+            # Total Exato: 16.0 cm
+            larguras_t4 = [Cm(3.5)] + [Cm(12.5 / len(bloco))] * len(bloco)
+            definir_larguras(tbl, larguras_t4)
             
             elemento_anterior.addnext(tbl._tbl)
             elemento_anterior = tbl._tbl
