@@ -24,9 +24,12 @@ def encontrar_paragrafo(doc, texto_tag):
                     if texto_tag in p.text: return p
     return None
 
-def preencher_celula(celula, texto, fundo_cinza=False, negrito=False, alinhar_centro=True):
-    # REMOVIDO os espaços em branco extras ( \n ) para deixar a tabela "justa" e menor.
-    celula.text = str(texto)
+def preencher_celula(celula, texto, fundo_cinza=False, negrito=False, alinhar_centro=True, espacamento=False):
+    # Se espacamento for True, injeta as quebras de linha (3 espaços) para a tabela de remuneração
+    if espacamento:
+        celula.text = f"\n{texto}\n"
+    else:
+        celula.text = str(texto)
     
     # Centralização Vertical
     celula.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
@@ -69,7 +72,7 @@ def substituir_tags_preservando_formatacao(doc, dados_pessoais):
                         run.font.name = 'Calibri'
                         run.font.bold = True
                         if dtc_count == 1:
-                            run.font.size = Pt(14) # Primeira página
+                            run.font.size = Pt(14) # Primeira página (Maior)
                         else:
                             run.font.size = Pt(12) # Segunda página (Remunerações)
                 else:
@@ -127,8 +130,8 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
             preencher_celula(r_des[1], f"Nº DE PORTARIA DE EXONERAÇÃO/ DEMISSÃO:\n{row.get('Port. Exoneração', 'NA')}", alinhar_centro=False)
             preencher_celula(r_des[2], f"DATA DA PUBLICAÇÃO:\n{row.get('Pub. Exoneração', 'NA')}", alinhar_centro=False)
         
-        # Total Exato: 16.0 cm
-        definir_larguras(tbl1, [Cm(5.3), Cm(5.3), Cm(5.4)])
+        # Total Exato: 16.0 cm (Alinhado com as margens de 2.5cm)
+        definir_larguras(tbl1, [Cm(5.33), Cm(5.33), Cm(5.34)])
         p_func1._p.addnext(tbl1._tbl)
         p_func1.text = p_func1.text.replace('{{TAB_FUNC_1}}', '')
 
@@ -218,14 +221,13 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
         p_func2.text = p_func2.text.replace('{{TAB_FUNC_2}}', '')
 
     # =========================================================
-    # TABELA 4: MATRIZ DE REMUNERAÇÕES PADRÃO INSS
+    # TABELA 4: MATRIZ DE REMUNERAÇÕES PADRÃO INSS (Com Espaçamento)
     # =========================================================
     p_remun = encontrar_paragrafo(doc, '{{TABELAS_REMUNERACAO}}')
     if p_remun is not None:
         anos_encontrados = set()
         dados_matriz = {}
         
-        # O df_remuneracoes agora já é uma matriz. Colunas = ['Mês', '2018', '2019'...]
         anos_colunas = [c for c in df_remuneracoes.columns if c != 'Mês']
         
         for row_idx, row in df_remuneracoes.iterrows():
@@ -235,17 +237,20 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
                     ano_int = int(ano_str)
                     anos_encontrados.add(ano_int)
                     val = str(row.get(ano_str, '')).strip()
-                    # Ignorar valores vazios vindos da interface do Pandas
                     if val and val.lower() not in ['nan', 'none', '<na>']:
                         dados_matriz[(mes_num, ano_int)] = val
                 except ValueError:
                     pass
 
-        # GERA UMA LINHA DE ANOS CONTÍNUA MESMO SE ALGUM ANO ESTIVER VAZIO
+        # GERA UMA LINHA DE ANOS CONTÍNUA E FORÇA A TER MÚLTIPLOS DE 5 ANOS
         if anos_encontrados:
             min_ano = min(anos_encontrados)
             max_ano = max(anos_encontrados)
             anos_completos = list(range(min_ano, max_ano + 1))
+            
+            # Preenche com anos extras vazios para fechar blocos de exatos 5 anos
+            while len(anos_completos) % 5 != 0:
+                anos_completos.append(anos_completos[-1] + 1)
         else:
             anos_completos = []
 
@@ -260,27 +265,29 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
             
             c_mes0 = tbl.cell(0, 0)
             c_mes0.merge(tbl.cell(1, 0))
-            preencher_celula(c_mes0, "Mês", fundo_cinza=True, negrito=True)
+            # Ativando 'espacamento=True' para dar os 3 espaços de altura
+            preencher_celula(c_mes0, "Mês", fundo_cinza=True, negrito=True, espacamento=True)
             
             for col_idx, ano in enumerate(bloco):
                 c_ano = tbl.cell(0, col_idx+1)
-                preencher_celula(c_ano, f"Ano: {ano}", fundo_cinza=True, negrito=True)
+                preencher_celula(c_ano, f"Ano: {ano}", fundo_cinza=True, negrito=True, espacamento=True)
                 
                 c_val = tbl.cell(1, col_idx+1)
-                preencher_celula(c_val, "Valor($)", fundo_cinza=True, negrito=True)
+                # "Valor($)" sem negrito conforme pedido!
+                preencher_celula(c_val, "Valor($)", fundo_cinza=True, negrito=False, espacamento=True)
                 
             for mes_idx, mes_nome in enumerate(meses_nomes):
                 c_m = tbl.cell(mes_idx+2, 0)
-                # Aplicando NEGRITO aos Meses da Tabela!
-                preencher_celula(c_m, mes_nome, negrito=True)
+                # Meses em negrito
+                preencher_celula(c_m, mes_nome, negrito=True, espacamento=True)
                 
                 for col_idx, ano in enumerate(bloco):
                     val = dados_matriz.get((mes_idx+1, ano), "-")
                     c_v = tbl.cell(mes_idx+2, col_idx+1)
-                    preencher_celula(c_v, val)
+                    preencher_celula(c_v, val, espacamento=True)
             
-            # Total Exato: 16.0 cm
-            larguras_t4 = [Cm(3.5)] + [Cm(12.5 / len(bloco))] * len(bloco)
+            # Total Exato: 16.0 cm (Mês=3.5cm, Cada Ano=2.5cm * 5)
+            larguras_t4 = [Cm(3.5), Cm(2.5), Cm(2.5), Cm(2.5), Cm(2.5), Cm(2.5)]
             definir_larguras(tbl, larguras_t4)
             
             elemento_anterior.addnext(tbl._tbl)
