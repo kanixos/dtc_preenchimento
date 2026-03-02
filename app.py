@@ -25,8 +25,8 @@ def encontrar_paragrafo(doc, texto_tag):
     return None
 
 def preencher_celula(celula, texto, fundo_cinza=False, negrito=False, alinhar_centro=True):
-    # Adiciona os espaços em branco (linhas) antes e depois
-    celula.text = f"\n{texto}\n"
+    # REMOVIDO os espaços em branco extras ( \n ) para deixar a tabela "justa" e menor.
+    celula.text = str(texto)
     
     # Centralização Vertical
     celula.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
@@ -59,11 +59,80 @@ def forcar_largura_100(tabela):
     tblW.set(qn('w:w'), '5000') # 5000 em pct = 100%
     tblW.set(qn('w:type'), 'pct')
 
-def definir_larguras(tabela, larguras):
+def definir_larguras_pct(tabela, percentuais):
+    """Ajusta a largura de cada coluna usando porcentagem proporcional."""
     for row in tabela.rows:
-        for idx, celula in enumerate(row.cells):
-            if idx < len(larguras):
-                celula.width = larguras[idx]
+        for idx, cell in enumerate(row.cells):
+            if idx < len(percentuais):
+                tcPr = cell._tc.get_or_add_tcPr()
+                tcW = tcPr.xpath('w:tcW')
+                if tcW:
+                    tcW = tcW[0]
+                else:
+                    tcW = OxmlElement('w:tcW')
+                    tcPr.append(tcW)
+                tcW.set(qn('w:w'), str(int(percentuais[idx] * 50))) 
+                tcW.set(qn('w:type'), 'pct')
+
+def substituir_tags_preservando_formatacao(doc, dados_pessoais):
+    """Substitui as tags de forma segura sem quebrar o negrito dos títulos originais."""
+    for p in doc.paragraphs:
+        for chave, valor in dados_pessoais.items():
+            if chave in p.text:
+                if chave == "{{NUM_DTC}}":
+                    if "DECLARAÇÃO DE TEMPO" in p.text.upper():
+                        p.text = ""
+                        r1 = p.add_run("DECLARAÇÃO DE TEMPO DE CONTRIBUIÇÃO AO RGPS\n")
+                        r1.bold = True
+                        r1.font.size = Pt(14)
+                        r1.font.name = 'Calibri'
+                        r2 = p.add_run(f"DTC N°: {valor}")
+                        r2.bold = True
+                        r2.font.size = Pt(14)
+                        r2.font.name = 'Calibri'
+                        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    elif "RELAÇÃO DAS REMUNERAÇÕES" in p.text.upper():
+                        p.text = ""
+                        r1 = p.add_run("RELAÇÃO DAS REMUNERAÇÕES QUE INCIDEM CONTRIBUIÇÕES PREVIDENCIÁRIAS\n")
+                        r1.bold = True
+                        r1.font.size = Pt(12)
+                        r1.font.name = 'Calibri'
+                        r2 = p.add_run(f"REFERENTE À DECLARAÇÃO DE TEMPO DE CONTRIBUIÇÃO AO RGPS – DTC Nº {valor}")
+                        r2.bold = False
+                        r2.font.size = Pt(12)
+                        r2.font.name = 'Calibri'
+                        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    else:
+                        p.text = p.text.replace(chave, str(valor))
+                else:
+                    substituido = False
+                    for run in p.runs:
+                        if chave in run.text:
+                            run.text = run.text.replace(chave, str(valor))
+                            run.font.name = 'Calibri'
+                            substituido = True
+                    if not substituido: 
+                        p.text = p.text.replace(chave, str(valor))
+                        for run in p.runs:
+                            run.font.name = 'Calibri'
+
+    # Substituição nas Tabelas (Dados Pessoais)
+    for t in doc.tables:
+        for r in t.rows:
+            for c in r.cells:
+                for p in c.paragraphs:
+                    for chave, valor in dados_pessoais.items():
+                        if chave in p.text:
+                            substituido = False
+                            for run in p.runs:
+                                if chave in run.text:
+                                    run.text = run.text.replace(chave, str(valor))
+                                    run.font.name = 'Calibri'
+                                    substituido = True
+                            if not substituido:
+                                p.text = p.text.replace(chave, str(valor))
+                                for run in p.runs:
+                                    run.font.name = 'Calibri'
 
 # ==========================================
 # MOTOR INTELIGENTE DE PREENCHIMENTO
@@ -71,43 +140,7 @@ def definir_larguras(tabela, larguras):
 def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
     doc = Document("template.docx")
     
-    # 1. Substituições de Texto Simples e Controle do Número DTC
-    dtc_count = 0
-    for paragrafo in doc.paragraphs:
-        teve_alteracao = False
-        tem_dtc = False
-        
-        for chave, valor in dados_pessoais.items():
-            if chave in paragrafo.text:
-                paragrafo.text = paragrafo.text.replace(chave, str(valor))
-                teve_alteracao = True
-                if chave == "{{NUM_DTC}}":
-                    tem_dtc = True
-                    dtc_count += 1
-                    
-        if teve_alteracao:
-            for run in paragrafo.runs:
-                run.font.name = 'Calibri'
-                # Aplica Tamanho 14 e Negrito APENAS na primeira vez que achar o DTC (Página 1)
-                if tem_dtc and dtc_count == 1:
-                    run.font.size = Pt(14)
-                    run.font.bold = True
-                else:
-                    run.font.size = Pt(12)
-                
-    for tabela in doc.tables:
-        for linha in tabela.rows:
-            for celula in linha.cells:
-                for p in celula.paragraphs:
-                    teve_alteracao = False
-                    for chave, valor in dados_pessoais.items():
-                        if chave in p.text:
-                            p.text = p.text.replace(chave, str(valor))
-                            teve_alteracao = True
-                    if teve_alteracao:
-                        for run in p.runs:
-                            run.font.name = 'Calibri'
-                            run.font.size = Pt(12)
+    substituir_tags_preservando_formatacao(doc, dados_pessoais)
 
     # =========================================================
     # TABELA 1: DADOS FUNCIONAIS (1ª Página)
@@ -116,7 +149,7 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
     if p_func1 is not None:
         tbl1 = doc.add_table(rows=0, cols=3)
         tbl1.style = 'Table Grid'
-        forcar_largura_100(tbl1) # Garante margens alinhadas
+        forcar_largura_100(tbl1) 
         
         for idx, row in df_vinculos.iterrows():
             if pd.isna(row.iloc[0]) or str(row.iloc[0]).strip() == "": continue
@@ -132,8 +165,7 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
             preencher_celula(r_des[1], f"Nº DE PORTARIA DE EXONERAÇÃO/ DEMISSÃO:\n{row.get('Port. Exoneração', 'NA')}", alinhar_centro=False)
             preencher_celula(r_des[2], f"DATA DA PUBLICAÇÃO:\n{row.get('Pub. Exoneração', 'NA')}", alinhar_centro=False)
         
-        definir_larguras(tbl1, [Cm(6.0), Cm(6.0), Cm(6.0)])
-        
+        definir_larguras_pct(tbl1, [33, 33, 34])
         p_func1._p.addnext(tbl1._tbl)
         p_func1.text = p_func1.text.replace('{{TAB_FUNC_1}}', '')
 
@@ -144,7 +176,7 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
     if p_per is not None:
         tbl2 = doc.add_table(rows=1, cols=5)
         tbl2.style = 'Table Grid'
-        forcar_largura_100(tbl2) # Garante margens alinhadas
+        forcar_largura_100(tbl2)
         
         headers = ["SEQ.:", "DATA INÍCIO:", "DATA FIM:", "CARGO/FUNÇÃO:", "CATEGORIA FUNCIONAL:"]
         for i, h in enumerate(headers):
@@ -179,12 +211,10 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
                         raw_text = start_cell.text.strip()
                         for r_idx in range(start_row + 1, end_row + 1):
                             start_cell.merge(tbl2.cell(r_idx, col_idx))
-                        # Mantém a categoria alinhada à esquerda
                         preencher_celula(start_cell, raw_text, alinhar_centro=(col_idx==3)) 
                     start_row = end_row + 1
 
-        definir_larguras(tbl2, [Cm(1.5), Cm(3.2), Cm(3.2), Cm(5.0), Cm(5.1)])
-        
+        definir_larguras_pct(tbl2, [8, 17, 17, 28, 30])
         p_per._p.addnext(tbl2._tbl)
         p_per.text = p_per.text.replace('{{TAB_PER}}', '')
 
@@ -220,8 +250,7 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
                     start_cell.merge(tbl3.cell(r_idx, col_idx))
                 preencher_celula(start_cell, raw_text, alinhar_centro=False)
 
-        definir_larguras(tbl3, [Cm(4.5), Cm(4.5), Cm(4.5), Cm(4.5)])
-
+        definir_larguras_pct(tbl3, [25, 25, 25, 25])
         p_func2._p.addnext(tbl3._tbl)
         p_func2.text = p_func2.text.replace('{{TAB_FUNC_2}}', '')
 
@@ -232,19 +261,32 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
     if p_remun is not None:
         anos_encontrados = set()
         dados_matriz = {}
-        for _, row in df_remuneracoes.iterrows():
-            comp = str(row.get('Competência', '')).strip()
-            val = str(row.get('Valor (R$)', '')).strip()
-            if '/' in comp and val:
+        
+        # O df_remuneracoes agora já é uma matriz. Colunas = ['Mês', '2018', '2019'...]
+        anos_colunas = [c for c in df_remuneracoes.columns if c != 'Mês']
+        
+        for row_idx, row in df_remuneracoes.iterrows():
+            mes_num = row_idx + 1 # 1 para Janeiro, 2 para Fevereiro...
+            for ano_str in anos_colunas:
                 try:
-                    m, a = comp.split('/')
-                    anos_encontrados.add(int(a))
-                    dados_matriz[(int(m), int(a))] = val
-                except:
+                    ano_int = int(ano_str)
+                    anos_encontrados.add(ano_int)
+                    val = str(row.get(ano_str, '')).strip()
+                    # Ignorar valores vazios vindos da interface do Pandas
+                    if val and val.lower() not in ['nan', 'none', '<na>']:
+                        dados_matriz[(mes_num, ano_int)] = val
+                except ValueError:
                     pass
 
-        anos_ordenados = sorted(list(anos_encontrados))
-        blocos_de_anos = [anos_ordenados[i:i+5] for i in range(0, len(anos_ordenados), 5)]
+        # GERA UMA LINHA DE ANOS CONTÍNUA MESMO SE ALGUM ANO ESTIVER VAZIO
+        if anos_encontrados:
+            min_ano = min(anos_encontrados)
+            max_ano = max(anos_encontrados)
+            anos_completos = list(range(min_ano, max_ano + 1))
+        else:
+            anos_completos = []
+
+        blocos_de_anos = [anos_completos[i:i+5] for i in range(0, len(anos_completos), 5)]
         meses_nomes = ["JANEIRO", "FEVEREIRO", "MARÇO", "ABRIL", "MAIO", "JUNHO", "JULHO", "AGOSTO", "SETEMBRO", "OUTUBRO", "NOVEMBRO", "DEZEMBRO"]
 
         elemento_anterior = p_remun._p
@@ -273,9 +315,10 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
                     val = dados_matriz.get((mes_idx+1, ano), "-")
                     c_v = tbl.cell(mes_idx+2, col_idx+1)
                     preencher_celula(c_v, val)
-                    
-            larguras_t4 = [Cm(3.5)] + [Cm(2.8)] * len(bloco)
-            definir_larguras(tbl, larguras_t4)
+            
+            pct_por_ano = 85 / len(bloco)
+            larguras_t4 = [15] + [pct_por_ano] * len(bloco)
+            definir_larguras_pct(tbl, larguras_t4)
             
             elemento_anterior.addnext(tbl._tbl)
             elemento_anterior = tbl._tbl
@@ -355,28 +398,41 @@ st.markdown("---")
 
 # --- 3. Remunerações ---
 st.subheader("3. Remunerações")
-st.success("⚡ **Acelerador:** Continue a digitar rapidamente um mês por linha. O sistema irá converter tudo em blocos de 5 anos!")
+st.success("⚡ **Acelerador Visual:** Digite os salários diretamente na matriz abaixo, do mesmo jeito que eles vão aparecer no documento final!")
 
 col_ano1, col_ano2, col_btn = st.columns([1, 1, 2])
 with col_ano1:
-    ano_inicio = st.number_input("Ano Inicial", min_value=1990, max_value=2050, value=2013, step=1)
+    ano_inicio = st.number_input("Ano Inicial", min_value=1990, max_value=2050, value=2018, step=1)
 with col_ano2:
-    ano_fim = st.number_input("Ano Final", min_value=1990, max_value=2050, value=2024, step=1)
+    ano_fim = st.number_input("Ano Final", min_value=1990, max_value=2050, value=2022, step=1)
 
-if 'df_remun_base' not in st.session_state:
-    st.session_state.df_remun_base = pd.DataFrame([{"Competência": "", "Valor (R$)": ""}] * 5)
+meses_nomes_ui = ["JANEIRO", "FEVEREIRO", "MARÇO", "ABRIL", "MAIO", "JUNHO", "JULHO", "AGOSTO", "SETEMBRO", "OUTUBRO", "NOVEMBRO", "DEZEMBRO"]
+
+# Inicializa a matriz na memória se não existir
+if 'df_remun_matriz' not in st.session_state:
+    colunas_padrao = ['Mês'] + [str(ano) for ano in range(2018, 2023)]
+    df_padrao = pd.DataFrame(columns=colunas_padrao)
+    df_padrao['Mês'] = meses_nomes_ui
+    st.session_state.df_remun_matriz = df_padrao
 
 with col_btn:
     st.write("") 
-    if st.button("⬇️ Criar Grade de Meses", type="secondary", use_container_width=True):
-        meses = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"]
-        linhas = []
-        for ano in range(ano_inicio, ano_fim + 1):
-            for mes in meses:
-                linhas.append({"Competência": f"{mes}/{ano}", "Valor (R$)": ""})
-        st.session_state.df_remun_base = pd.DataFrame(linhas)
+    if st.button("⬇️ Gerar Tabela de Anos", type="secondary", use_container_width=True):
+        colunas_novas = ['Mês'] + [str(ano) for ano in range(ano_inicio, ano_fim + 1)]
+        df_nova = pd.DataFrame(columns=colunas_novas)
+        df_nova['Mês'] = meses_nomes_ui
+        st.session_state.df_remun_matriz = df_nova
 
-df_remuneracoes = st.data_editor(st.session_state.df_remun_base, num_rows="dynamic", use_container_width=True, height=400)
+# Configura a coluna Mês para ser um "índice fixo" (não editável) no visual do Streamlit
+config_colunas_remun = {"Mês": st.column_config.TextColumn("Mês", disabled=True)}
+
+df_remuneracoes = st.data_editor(
+    st.session_state.df_remun_matriz, 
+    hide_index=True, 
+    use_container_width=True, 
+    column_config=config_colunas_remun,
+    height=450
+)
 
 # --- Botão de Geração Final ---
 st.markdown("---")
