@@ -24,12 +24,9 @@ def encontrar_paragrafo(doc, texto_tag):
                     if texto_tag in p.text: return p
     return None
 
-def preencher_celula(celula, texto, fundo_cinza=False, negrito=False, alinhar_centro=True, espacamento=False):
-    # Se espacamento for True, injeta as quebras de linha (3 espaços) para a tabela de remuneração
-    if espacamento:
-        celula.text = f"\n{texto}\n"
-    else:
-        celula.text = str(texto)
+def preencher_celula(celula, texto, fundo_cinza=False, negrito=False, alinhar_centro=True):
+    # Insere apenas o texto, sem espaços em branco extras (para manter a tabela compacta)
+    celula.text = str(texto)
     
     # Centralização Vertical
     celula.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
@@ -37,6 +34,10 @@ def preencher_celula(celula, texto, fundo_cinza=False, negrito=False, alinhar_ce
     # Formatação do Parágrafo e Fonte
     for p in celula.paragraphs:
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER if alinhar_centro else WD_ALIGN_PARAGRAPH.LEFT
+        # Zera o espaçamento antes e depois do parágrafo para a célula ficar bem justa
+        p.paragraph_format.space_before = Pt(0)
+        p.paragraph_format.space_after = Pt(0)
+        
         for run in p.runs:
             run.font.name = 'Calibri'
             run.font.size = Pt(12)
@@ -222,7 +223,7 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
         p_func2.text = p_func2.text.replace('{{TAB_FUNC_2}}', '')
 
     # =========================================================
-    # TABELA 4: MATRIZ DE REMUNERAÇÕES PADRÃO INSS (Com Espaçamento)
+    # TABELA 4: MATRIZ DE REMUNERAÇÕES PADRÃO INSS
     # =========================================================
     p_remun = encontrar_paragrafo(doc, '{{TABELAS_REMUNERACAO}}')
     if p_remun is not None:
@@ -266,26 +267,25 @@ def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
             
             c_mes0 = tbl.cell(0, 0)
             c_mes0.merge(tbl.cell(1, 0))
-            # Ativando 'espacamento=True' para dar os 3 espaços de altura
-            preencher_celula(c_mes0, "Mês", fundo_cinza=True, negrito=True, espacamento=True)
+            preencher_celula(c_mes0, "Mês", fundo_cinza=True, negrito=True)
             
             for col_idx, ano in enumerate(bloco):
                 c_ano = tbl.cell(0, col_idx+1)
-                preencher_celula(c_ano, f"Ano: {ano}", fundo_cinza=True, negrito=True, espacamento=True)
+                preencher_celula(c_ano, f"Ano: {ano}", fundo_cinza=True, negrito=True)
                 
                 c_val = tbl.cell(1, col_idx+1)
-                # "Valor($)" sem negrito conforme pedido!
-                preencher_celula(c_val, "Valor($)", fundo_cinza=True, negrito=False, espacamento=True)
+                # "Valor($)" sem negrito conforme pedido
+                preencher_celula(c_val, "Valor($)", fundo_cinza=True, negrito=False)
                 
             for mes_idx, mes_nome in enumerate(meses_nomes):
                 c_m = tbl.cell(mes_idx+2, 0)
                 # Meses em negrito
-                preencher_celula(c_m, mes_nome, negrito=True, espacamento=True)
+                preencher_celula(c_m, mes_nome, negrito=True)
                 
                 for col_idx, ano in enumerate(bloco):
                     val = dados_matriz.get((mes_idx+1, ano), "-")
                     c_v = tbl.cell(mes_idx+2, col_idx+1)
-                    preencher_celula(c_v, val, espacamento=True)
+                    preencher_celula(c_v, val)
             
             # Total Exato: 16.0 cm (Mês=3.5cm, Cada Ano=2.5cm * 5) + Centralização
             larguras_t4 = [Cm(3.5), Cm(2.5), Cm(2.5), Cm(2.5), Cm(2.5), Cm(2.5)]
