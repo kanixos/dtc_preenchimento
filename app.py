@@ -8,8 +8,6 @@ from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Pt, Cm
-import tempfile
-import os
 
 # ==========================================
 # FUNÇÕES AUXILIARES DE FORMATAÇÃO
@@ -78,6 +76,10 @@ def substituir_tags_preservando_formatacao(doc, dados_pessoais):
                         else:
                             run.font.size = Pt(12) # Segunda página (Remunerações)
                 else:
+                    # IDENTIFICA O TÍTULO DAS REMUNERAÇÕES E FORÇA A QUEBRA DE PÁGINA
+                    if "RELAÇÃO DAS REMUNERAÇÕES" in p.text.upper():
+                        p.paragraph_format.page_break_before = True
+                        
                     p.text = p.text.replace(chave, str(valor))
                     # Fallback para outras tags soltas fora de tabelas
                     for run in p.runs:
@@ -107,6 +109,11 @@ def substituir_tags_preservando_formatacao(doc, dados_pessoais):
 # ==========================================
 def preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes):
     doc = Document("template.docx")
+    
+    # Configura automaticamente as margens do documento para 2.5cm (Elimina erro humano no template)
+    for section in doc.sections:
+        section.left_margin = Cm(2.5)
+        section.right_margin = Cm(2.5)
     
     substituir_tags_preservando_formatacao(doc, dados_pessoais)
 
@@ -408,61 +415,28 @@ df_remuneracoes = st.data_editor(
 # --- Botão de Geração Final ---
 st.markdown("---")
 
-gerar_pdf = st.checkbox("Gerar também em formato PDF (Requer execução local no Windows com MS Word instalado)")
-
 if st.button("🚀 GERAR DOCUMENTO PADRÃO INSS", type="primary", use_container_width=True):
     if nome and cpf:
+        # Formatação segura para o nome do arquivo (Troca Barras por Traços)
+        dtc_seguro = str(numero_dtc).replace('/', '-').replace('\\', '-').strip() if numero_dtc else "Sem_Numero"
+        nome_seguro = str(nome).replace(' ', '_').strip()
+        
         with st.spinner('A desenhar as tabelas exatas do INSS com fontes e cores...'):
             try:
                 arquivo_docx = preencher_documento(dados_pessoais, df_vinculos, df_remuneracoes)
                 st.balloons()
                 
-                col_down1, col_down2 = st.columns(2)
+                # Cria 3 colunas para forçar o botão a ficar perfeitamente no centro
+                col_vazia1, col_centro, col_vazia2 = st.columns([1, 2, 1])
                 
-                with col_down1:
+                with col_centro:
                     st.download_button(
                         label="📥 BAIXAR DTC (WORD)",
                         data=arquivo_docx,
-                        file_name=f"DTC_{nome.replace(' ', '_')}.docx",
+                        file_name=f"DTC_{dtc_seguro}_{nome_seguro}.docx",
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         use_container_width=True
                     )
-                
-                if gerar_pdf:
-                    with col_down2:
-                        try:
-                            from docx2pdf import convert
-                            
-                            with st.spinner("Convertendo para PDF (isso pode levar alguns segundos)..."):
-                                with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp_docx:
-                                    tmp_docx.write(arquivo_docx.getvalue())
-                                    tmp_docx_path = tmp_docx.name
-                                    
-                                tmp_pdf_path = tmp_docx_path.replace(".docx", ".pdf")
-                                
-                                convert(tmp_docx_path, tmp_pdf_path)
-                                
-                                with open(tmp_pdf_path, "rb") as f:
-                                    pdf_bytes = f.read()
-                                    
-                                st.download_button(
-                                    label="📥 BAIXAR DTC (PDF)",
-                                    data=pdf_bytes,
-                                    file_name=f"DTC_{nome.replace(' ', '_')}.pdf",
-                                    mime="application/pdf",
-                                    use_container_width=True
-                                )
-                                
-                                try:
-                                    os.remove(tmp_docx_path)
-                                    os.remove(tmp_pdf_path)
-                                except:
-                                    pass
-                                    
-                        except ImportError:
-                            st.error("⚠️ Biblioteca 'docx2pdf' ausente. Abra o terminal e digite: pip install docx2pdf")
-                        except Exception as e:
-                            st.warning("⚠️ O sistema de PDF não funcionou na nuvem. Baixe o Word e vá em 'Salvar como PDF' no seu computador.")
                             
             except Exception as e:
                 st.error(f"Erro ao processar as matrizes. Detalhe técnico: {e}")
